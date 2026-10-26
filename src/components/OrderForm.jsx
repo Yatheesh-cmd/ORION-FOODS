@@ -52,13 +52,12 @@ export default function OrderForm({ customer, onClose, onSuccess }) {
     try {
       setLoading(true);
       setError("");
-      // The logged-in customer is identified by the server (token),
-      // so only date and meal counts are sent from here.
+      // Field names must match what the backend/table use: *Count
       await API.post("/orders", {
         date,
-        breakfast: counts.breakfast,
-        lunch: counts.lunch,
-        dinner: counts.dinner,
+        breakfastCount: counts.breakfast,
+        lunchCount: counts.lunch,
+        dinnerCount: counts.dinner,
       });
       onSuccess && (await onSuccess());
       onClose();
