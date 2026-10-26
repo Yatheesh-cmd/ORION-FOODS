@@ -1,6 +1,13 @@
 import { useState } from "react";
 import API from "../services/api";
 
+// IMPORTANT: set these to the same per-meal prices your backend uses for totalCost
+const PRICES = {
+  breakfast: 50,
+  lunch: 80,
+  dinner: 70,
+};
+
 // Replace `icon` with an <img> by setting `img` (e.g. import breakfastImg from "../assets/breakfast.png")
 const MEALS = [
   {
@@ -43,11 +50,15 @@ export default function OrderForm({ customer, onClose, onSuccess }) {
   const change = (key, delta) =>
     setCounts((c) => ({ ...c, [key]: Math.max(0, c[key] + delta) }));
 
-  const total = counts.breakfast + counts.lunch + counts.dinner;
+  const totalMeals = counts.breakfast + counts.lunch + counts.dinner;
+  const totalAmount =
+    counts.breakfast * PRICES.breakfast +
+    counts.lunch * PRICES.lunch +
+    counts.dinner * PRICES.dinner;
 
   const handleSubmit = async () => {
     if (!date) return setError("Please select a date");
-    if (total === 0) return setError("Add at least one meal");
+    if (totalMeals === 0) return setError("Add at least one meal");
 
     try {
       setLoading(true);
@@ -132,6 +143,9 @@ export default function OrderForm({ customer, onClose, onSuccess }) {
                     <div>
                       <p className="font-bold text-gray-800">{m.label}</p>
                       <p className="text-xs text-gray-500">{m.sub}</p>
+                      <p className="mt-0.5 text-xs font-semibold text-orange-600">
+                        ₹{PRICES[m.key]} each
+                      </p>
                     </div>
                   </div>
 
@@ -160,12 +174,14 @@ export default function OrderForm({ customer, onClose, onSuccess }) {
             })}
           </div>
 
-          {/* Summary */}
+          {/* Total amount */}
           <div className="flex items-center justify-between rounded-lg bg-orange-50 px-4 py-3">
             <span className="text-sm font-semibold text-gray-700">
-              Total meals
+              Total Amount
             </span>
-            <span className="text-xl font-bold text-orange-600">{total}</span>
+            <span className="text-xl font-bold text-orange-600">
+              ₹{totalAmount}
+            </span>
           </div>
 
           {error && (
@@ -184,7 +200,7 @@ export default function OrderForm({ customer, onClose, onSuccess }) {
             </button>
             <button
               onClick={handleSubmit}
-              disabled={loading || total === 0}
+              disabled={loading || totalMeals === 0}
               className="flex-1 rounded-lg bg-orange-500 py-2.5 font-semibold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? "Placing..." : "Place Order"}
