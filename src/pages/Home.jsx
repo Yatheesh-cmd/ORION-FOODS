@@ -11,24 +11,24 @@ import {
   FaUserTie,
   FaUserShield,
   FaBolt,
+  FaTimes,
+  FaTag,
 } from "react-icons/fa";
 import { GiHotMeal } from "react-icons/gi";
 import { MdOutlineFastfood, MdPayment } from "react-icons/md";
 
-// Correct import from assets/index.js
-import { about1 } from "../assets/index"; // change path if your assets folder is elsewhere (e.g. "../assets")
+import { about1 } from "../assets/index";
+import { PRICE, FULL_DAY_PRICE, TWO_MEAL_PRICE, normalCost, autoDayCost, formatINR } from "../assets/utils/pricing";
 
-// Chef logo for the new 3rd section
 const CHEF_LOGO =
   "https://png.pngtree.com/png-clipart/20240202/original/pngtree-chef-logo-for-culinary-png-image_14215663.png";
 
-/* Demo prices – only used for the interactive sample card in the hero */
 const SAMPLE_MEALS = [
   {
     key: "breakfast",
     label: "Breakfast",
     time: "7:30 AM",
-    price: 40,
+    price: PRICE.breakfast,
     emoji: "☕",
     tile: "from-amber-100 to-orange-200",
   },
@@ -36,7 +36,7 @@ const SAMPLE_MEALS = [
     key: "lunch",
     label: "Lunch",
     time: "1:00 PM",
-    price: 70,
+    price: PRICE.lunch,
     emoji: "🍛",
     tile: "from-orange-100 to-rose-200",
   },
@@ -44,7 +44,7 @@ const SAMPLE_MEALS = [
     key: "dinner",
     label: "Dinner",
     time: "8:00 PM",
-    price: 60,
+    price: PRICE.dinner,
     emoji: "🍲",
     tile: "from-blue-100 to-indigo-200",
   },
@@ -56,15 +56,18 @@ function SampleOrderCard() {
   const change = (key, delta) =>
     setCounts((c) => ({ ...c, [key]: Math.max(0, Math.min(9, c[key] + delta)) }));
 
-  const total = SAMPLE_MEALS.reduce((sum, m) => sum + m.price * counts[m.key], 0);
+  const picked = SAMPLE_MEALS.filter((m) => counts[m.key] > 0);
   const items = SAMPLE_MEALS.reduce((sum, m) => sum + counts[m.key], 0);
+  const regular = normalCost(counts.breakfast, counts.lunch, counts.dinner);
+  const comboPossible = picked.length >= 2;
+  const offerOn = comboPossible && picked.every((m) => counts[m.key] === 1);
+  const payable = offerOn ? autoDayCost(counts.breakfast, counts.lunch, counts.dinner) : regular;
+  const saved = regular - payable;
 
   return (
     <div className="relative mx-auto w-full max-w-md">
-      {/* soft glow behind the card */}
       <div className="absolute inset-0 -z-0 scale-95 rounded-[2rem] bg-gradient-to-br from-blue-400/40 to-orange-400/40 blur-2xl" />
 
-      {/* floating status chips */}
       <div className="animate-float absolute -left-5 -top-6 z-20 hidden items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-xl ring-1 ring-slate-900/5 sm:flex">
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-green-100 text-green-600">
           <FaCheckCircle />
@@ -76,7 +79,6 @@ function SampleOrderCard() {
       </div>
 
       <div className="relative z-10 overflow-hidden rounded-3xl bg-white shadow-2xl shadow-black/30 ring-1 ring-white/40">
-        {/* accent bar */}
         <div className="h-1.5 w-full bg-gradient-to-r from-blue-600 via-blue-400 to-orange-500" />
 
         <div className="p-6">
@@ -152,15 +154,45 @@ function SampleOrderCard() {
             })}
           </ul>
 
-          <div className="mt-5 flex items-end justify-between rounded-2xl bg-[#0b1b3f] px-5 py-4 text-white">
-            <div>
-              <p className="text-xs text-blue-200/70">
-                {items} {items === 1 ? "meal" : "meals"} today
-              </p>
-              <p className="text-sm font-medium text-blue-100">Total amount</p>
+          <div className="mt-5 overflow-hidden rounded-2xl bg-[#0b1b3f] text-white">
+            <div className="flex items-center justify-between gap-3 px-5 py-4">
+              <div>
+                <p className="text-xs text-blue-200/70">
+                  {items} {items === 1 ? "meal" : "meals"} today
+                </p>
+                <p className="text-sm font-medium text-blue-100">Total amount</p>
+              </div>
+              <div className="text-right">
+                {offerOn && (
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white">
+                      <FaTimes className="text-[8px]" />
+                    </span>
+                    <span className="text-base font-semibold text-blue-200/70 line-through decoration-red-400 decoration-2">
+                      {formatINR(regular)}
+                    </span>
+                  </div>
+                )}
+                <span className="font-display text-3xl font-extrabold">{formatINR(payable)}</span>
+              </div>
             </div>
-            <span className="font-display text-3xl font-extrabold">₹{total}</span>
+
+            {offerOn && (
+              <div className="flex items-center justify-between gap-2 bg-green-500 px-5 py-2.5 text-sm font-bold text-white">
+                <span className="flex items-center gap-2">
+                  <FaTag className="text-xs" />
+                  {picked.length === 3 ? "Full day combo offer" : "Two meal combo offer"}
+                </span>
+                <span className="rounded-full bg-white/20 px-3 py-0.5">Saved {formatINR(saved)}</span>
+              </div>
+            )}
           </div>
+
+          <p className="mt-3 text-center text-[11px] font-semibold text-orange-600">
+            {comboPossible && !offerOn
+              ? "Combo offer applies when you pick 1 of each meal per day"
+              : `10-day Auto Order offer: full day ${formatINR(FULL_DAY_PRICE)} · any two meals ${formatINR(TWO_MEAL_PRICE)}`}
+          </p>
         </div>
       </div>
     </div>
@@ -193,7 +225,6 @@ const TRACK = ["Placed", "Preparing", "Delivered"];
 export default function Home() {
   return (
     <div className="flex min-h-screen flex-col bg-slate-50">
-      {/* ============================ HERO ============================ */}
       <section className="relative overflow-hidden bg-brand-gradient">
         <div className="bg-grid-dark absolute inset-0" />
         <div className="absolute -left-32 top-10 h-96 w-96 rounded-full bg-blue-500/30 blur-3xl" />
@@ -240,10 +271,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ============================ ABOUT ============================ */}
       <section className="relative z-10 mx-auto w-full max-w-7xl px-5 py-20 sm:py-24">
         <div className="overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-slate-900/5 md:grid md:grid-cols-2">
-          {/* Left – Image (shows the full picture on every screen size) */}
           <div className="group relative flex min-h-[280px] items-center justify-center overflow-hidden bg-gradient-to-br from-orange-50 via-white to-blue-50 p-4 md:min-h-[460px] lg:p-6">
             <img
               src={about1}
@@ -252,7 +281,6 @@ export default function Home() {
             />
           </div>
 
-          {/* Right – Content */}
           <div className="flex flex-col justify-center p-8 sm:p-10 lg:p-14">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-orange-50 px-3.5 py-1.5 text-xs font-semibold text-orange-700 ring-1 ring-orange-200">
               <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />
@@ -271,11 +299,7 @@ export default function Home() {
             </p>
 
             <ul className="mt-7 space-y-3">
-              {[
-                "No Ajinomoto",
-                "No artificial colors & flavors",
-                "No recycled oils",
-              ].map((item) => (
+              {["No Ajinomoto", "No artificial colors & flavors", "No recycled oils"].map((item) => (
                 <li key={item} className="flex items-center gap-3 text-sm font-medium text-slate-700">
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-600">
                     <FaCheckCircle className="text-xs" />
@@ -298,10 +322,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ============================ CHEF / PARAGRAPH (3rd section) ============================ */}
       <section className="relative z-10 mx-auto w-full max-w-7xl px-5 pb-20 sm:pb-24">
         <div className="grid items-center gap-10 md:grid-cols-2 lg:gap-16">
-          {/* Left – Chef logo */}
           <div className="relative mx-auto w-full max-w-md">
             <div className="absolute inset-0 scale-90 rounded-full bg-gradient-to-br from-orange-300/40 to-blue-300/40 blur-3xl" />
             <div className="relative flex items-center justify-center rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-900/5 sm:p-10">
@@ -314,7 +336,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right – Paragraph */}
           <div className="text-center md:text-left">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3.5 py-1.5 text-xs font-semibold text-blue-700 ring-1 ring-blue-200">
               <span className="h-1.5 w-1.5 rounded-full bg-blue-600" />
@@ -349,7 +370,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ============================ FEATURES ============================ */}
       <section className="relative z-10 mx-auto w-full max-w-7xl px-5 py-24">
         <div className="mb-14 max-w-2xl">
           <h2 className="text-3xl font-bold sm:text-4xl">Built for the way people actually eat</h2>
@@ -359,7 +379,6 @@ export default function Home() {
         </div>
 
         <div className="grid gap-5 md:grid-cols-6">
-          {/* Easy ordering – large, dark blue */}
           <div className="group relative overflow-hidden rounded-3xl bg-[#0b1b3f] p-8 text-white transition duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-blue-900/30 md:col-span-4">
             <div className="absolute -right-10 -top-10 h-48 w-48 rounded-full bg-blue-600/40 blur-3xl" />
             <div className="bg-grid-dark absolute inset-0 opacity-60" />
@@ -383,7 +402,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Payments – orange tint */}
           <div className="rounded-3xl border border-orange-200 bg-gradient-to-br from-orange-50 to-orange-100 p-8 transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-orange-500/15 md:col-span-2">
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500 text-2xl text-white shadow-lg shadow-orange-500/30">
               <MdPayment />
@@ -394,7 +412,6 @@ export default function Home() {
             </p>
           </div>
 
-          {/* Fast service */}
           <div className="card p-8 transition duration-300 hover:-translate-y-1 hover:shadow-xl md:col-span-2">
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-2xl text-blue-700">
               <FaBolt />
@@ -413,7 +430,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Roles */}
           <div className="card p-8 transition duration-300 hover:shadow-xl md:col-span-4">
             <h3 className="text-xl font-bold">A dashboard for every role</h3>
             <p className="mt-2 text-sm text-slate-500">Each person signs in and sees only what they need.</p>
@@ -435,7 +451,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ============================ HOW IT WORKS ============================ */}
       <section className="border-y border-slate-200 bg-white py-24">
         <div className="mx-auto max-w-7xl px-5">
           <h2 className="max-w-xl text-3xl font-bold sm:text-4xl">Your first order in three steps</h2>
@@ -457,7 +472,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ============================ CTA ============================ */}
       <section className="px-5 py-24">
         <div className="relative mx-auto max-w-5xl overflow-hidden rounded-3xl bg-brand-gradient px-8 py-16 text-center sm:px-16">
           <div className="bg-grid-dark absolute inset-0" />
