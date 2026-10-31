@@ -6,6 +6,7 @@ import {
   FaUser,
   FaPhone,
   FaMapMarkerAlt,
+  FaMapPin,
   FaEnvelope,
   FaLock,
   FaEye,
@@ -58,6 +59,7 @@ export default function Register() {
     name: "",
     phone: "",
     address: "",
+    pincode: "",
     email: "",
     password: "",
   });
@@ -65,11 +67,19 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
 
   const update = (field) => (e) => setForm({ ...form, [field]: e.target.value });
+  const updatePincode = (e) =>
+    setForm({ ...form, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) });
   const strength = getStrength(form.password);
   const field = "input-field bg-slate-50 pl-11 focus:bg-white";
 
   const submit = async (e) => {
     e.preventDefault();
+
+    if (!/^\d{6}$/.test(form.pincode)) {
+      toast.error("Enter a valid 6-digit pincode");
+      return;
+    }
+
     setLoading(true);
     try {
       // Public sign-up always creates a customer account.
@@ -180,18 +190,37 @@ export default function Register() {
                 />
               </IconInput>
 
-              <IconInput id="address" label="Address" icon={FaMapMarkerAlt}>
-                <input
-                  id="address"
-                  type="text"
-                  required
-                  autoComplete="street-address"
-                  placeholder="123 Main St, City"
-                  value={form.address}
-                  onChange={update("address")}
-                  className={field}
-                />
-              </IconInput>
+              <div className="grid gap-5 md:grid-cols-[2fr_1fr]">
+                <IconInput id="address" label="Address" icon={FaMapMarkerAlt}>
+                  <input
+                    id="address"
+                    type="text"
+                    required
+                    autoComplete="street-address"
+                    placeholder="123 Main St, City"
+                    value={form.address}
+                    onChange={update("address")}
+                    className={field}
+                  />
+                </IconInput>
+
+                <IconInput id="pincode" label="Pincode" icon={FaMapPin}>
+                  <input
+                    id="pincode"
+                    type="text"
+                    inputMode="numeric"
+                    required
+                    maxLength={6}
+                    pattern="\d{6}"
+                    title="Enter a 6-digit pincode"
+                    autoComplete="postal-code"
+                    placeholder="682001"
+                    value={form.pincode}
+                    onChange={updatePincode}
+                    className={field}
+                  />
+                </IconInput>
+              </div>
 
               <div>
                 <IconInput id="password" label="Password" icon={FaLock}>
