@@ -6,6 +6,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import CustomerDashboard from "./pages/CustomerDashboard";
 import CustomerDetails from "./pages/CustomerDetails";
+import Profile from "./pages/Profile";
 import Services from "./pages/Services";
 import AdminDashboard from "./pages/AdminDashboard";
 import StaffDashboard from "./pages/StaffDashboard";
@@ -32,6 +33,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={["customer"]}>
               <CustomerDetails />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/customer/profile"
+          element={
+            <ProtectedRoute roles={["customer"]}>
+              <Profile />
             </ProtectedRoute>
           }
         />
