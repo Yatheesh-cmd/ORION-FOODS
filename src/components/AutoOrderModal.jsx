@@ -1,99 +1,233 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
+import {
+  FaTimes,
+  FaSyncAlt,
+  FaPen,
+  FaCheck,
+  FaLock,
+  FaCoffee,
+  FaSun,
+  FaMoon,
+  FaCalendarAlt,
+  FaCalendarCheck,
+  FaWallet,
+  FaPiggyBank,
+  FaUmbrellaBeach,
+  FaInfoCircle,
+  FaStopCircle,
+  FaBolt,
+  FaUtensils,
+  FaExclamationTriangle,
+} from "react-icons/fa";
 import API from "../services/api";
-
-const DAYS = [
-  { key: "mon", label: "Monday" },
-  { key: "tue", label: "Tuesday" },
-  { key: "wed", label: "Wednesday" },
-  { key: "thu", label: "Thursday" },
-  { key: "fri", label: "Friday" },
-  { key: "sat", label: "Saturday" },
-  { key: "sun", label: "Sunday" },
-];
+import { AUTO_DAYS, FULL_DAY_PRICE, TWO_MEAL_PRICE, autoDayCost, formatINR, normalCost } from "../assets/utils/pricing";
+import { pincodeMessage } from "../assets/utils/delivery";
+import { DeliveryLocationCard, useCustomerDelivery } from "../components/DeliveryLocation";
+import {
+  MEAL_KEYS,
+  addDays,
+  todayIST,
+  isMealOpen,
+  closedMessage,
+  dayLabel,
+  shortDate,
+  useNow,
+} from "../assets/utils/cutoff";
 
 const MEALS = [
-  { key: "breakfastCount", label: "Breakfast", short: "B", emoji: "🌅", card: "bg-amber-50", on: "bg-amber-100 text-amber-900" },
-  { key: "lunchCount", label: "Lunch", short: "L", emoji: "☀️", card: "bg-sky-50", on: "bg-sky-100 text-sky-900" },
-  { key: "dinnerCount", label: "Dinner", short: "D", emoji: "🌙", card: "bg-indigo-50", on: "bg-indigo-100 text-indigo-900" },
+  {
+    key: "breakfast",
+    short: "B",
+    label: "Breakfast",
+    icon: FaCoffee,
+    on: "bg-amber-50 text-amber-700 ring-amber-200",
+    tileOn: "border-amber-400 bg-amber-50 text-amber-800",
+    iconOn: "bg-amber-400 text-white",
+  },
+  {
+    key: "lunch",
+    short: "L",
+    label: "Lunch",
+    icon: FaSun,
+    on: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    tileOn: "border-emerald-400 bg-emerald-50 text-emerald-800",
+    iconOn: "bg-emerald-500 text-white",
+  },
+  {
+    key: "dinner",
+    short: "D",
+    label: "Dinner",
+    icon: FaMoon,
+    on: "bg-indigo-50 text-indigo-700 ring-indigo-200",
+    tileOn: "border-indigo-400 bg-indigo-50 text-indigo-800",
+    iconOn: "bg-indigo-500 text-white",
+  },
 ];
 
-const emptyDay = () => ({ breakfastCount: 0, lunchCount: 0, dinnerCount: 0 });
-const emptyWeek = () => Object.fromEntries(DAYS.map((d) => [d.key, emptyDay()]));
-const clamp = (n) => Math.max(0, Math.min(999, Number.isFinite(n) ? n : 0));
-const dayTotal = (d) => d.breakfastCount + d.lunchCount + d.dinnerCount;
-const errMsg = (err) => err?.response?.data?.message || err?.message || "Something went wrong";
+const PRESETS = [
+  { label: "B + L", meals: ["breakfast", "lunch"] },
+  { label: "B + D", meals: ["breakfast", "dinner"] },
+  { label: "L + D", meals: ["lunch", "dinner"] },
+  { label: "Full day", meals: ["breakfast", "lunch", "dinner"] },
+];
 
-function Stepper({ value, onChange, label, size = "md" }) {
-  const btn = size === "sm" ? "h-7 w-7 text-base" : "h-9 w-9 text-lg";
+const ZERO = { breakfast: 0, lunch: 0, dinner: 0 };
+const FULL = { breakfast: 1, lunch: 1, dinner: 1 };
+const countOf = (c) => c.breakfast + c.lunch + c.dinner;
+const priceOf = (c) => autoDayCost(c.breakfast, c.lunch, c.dinner);
+const regularOf = (c) => normalCost(c.breakfast, c.lunch, c.dinner);
+const toBody = (c) => ({ breakfastCount: c.breakfast, lunchCount: c.lunch, dinnerCount: c.dinner });
+const fromDay = (d) => ({ breakfast: d.breakfastCount, lunch: d.lunchCount, dinner: d.dinnerCount });
+const defaultStart = () => addDays(todayIST(), 1);
+
+const buildDraft = (start, tpl) =>
+  Array.from({ length: AUTO_DAYS }, (_, i) => {
+    const date = addDays(start, i);
+    const c = { ...ZERO };
+    MEAL_KEYS.forEach((m) => {
+      c[m] = tpl[m] && isMealOpen(date, m) ? 1 : 0;
+    });
+    return c;
+  });
+
+const dayParts = (date) => {
+  const d = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return { wd: "", num: "–", mon: "" };
+  return {
+    wd: d.toLocaleDateString("en-IN", { weekday: "short" }),
+    num: d.getDate(),
+    mon: d.toLocaleDateString("en-IN", { month: "short" }),
+  };
+};
+
+function DateTile({ date, muted }) {
+  const { wd, num, mon } = dayParts(date);
   return (
-    <div className="inline-flex items-center gap-1.5">
-      <button
-        type="button"
-        aria-label={`Decrease ${label}`}
-        disabled={value <= 0}
-        onClick={() => onChange(clamp(value - 1))}
-        className={`${btn} flex items-center justify-center rounded-full bg-white font-bold text-slate-700 ring-1 ring-slate-300 transition hover:bg-slate-50 active:scale-95 disabled:opacity-40`}
-      >
-        −
-      </button>
-      <input
-        type="number"
-        inputMode="numeric"
-        min="0"
-        max="999"
-        aria-label={label}
-        value={value}
-        onChange={(e) => onChange(clamp(parseInt(e.target.value, 10)))}
-        className={`${size === "sm" ? "w-9 text-base" : "w-12 text-2xl"} rounded-md bg-transparent text-center font-bold tabular-nums text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600/40 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
-      />
-      <button
-        type="button"
-        aria-label={`Increase ${label}`}
-        onClick={() => onChange(clamp(value + 1))}
-        className={`${btn} flex items-center justify-center rounded-full bg-teal-700 font-bold text-white transition hover:bg-teal-800 active:scale-95`}
-      >
-        +
-      </button>
+    <span
+      className={`flex h-14 w-14 flex-none flex-col items-center justify-center rounded-2xl ${
+        muted
+          ? "bg-slate-100 text-slate-400"
+          : "bg-gradient-to-br from-slate-900 to-slate-700 text-white shadow-md shadow-slate-900/20"
+      }`}
+    >
+      <span className={`text-[9px] font-bold uppercase tracking-widest ${muted ? "text-slate-400" : "text-orange-300"}`}>
+        {wd}
+      </span>
+      <span className="text-lg font-extrabold leading-none">{num}</span>
+      <span className={`text-[9px] font-semibold uppercase ${muted ? "text-slate-400" : "text-slate-300"}`}>{mon}</span>
+    </span>
+  );
+}
+
+function Chips({ value }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {MEALS.map((m) => {
+        const Icon = m.icon;
+        return (
+          <span
+            key={m.key}
+            title={m.label}
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-xl text-xs ${
+              value[m.key] ? `${m.on} ring-1` : "bg-slate-50 text-slate-300"
+            }`}
+          >
+            <Icon />
+          </span>
+        );
+      })}
     </div>
   );
 }
 
-export default function AutoOrderModal({ open, onClose, customers: customersProp }) {
-  const [customers, setCustomers] = useState(customersProp || []);
-  const [customerId, setCustomerId] = useState("");
-  const [week, setWeek] = useState(emptyWeek);
-  const [common, setCommon] = useState({ breakfastCount: 1, lunchCount: 1, dinnerCount: 1 });
-  const [active, setActive] = useState(true);
-  const [loadingSchedule, setLoadingSchedule] = useState(false);
-  const [saving, setSaving] = useState(false);
+function MealTile({ meal, active, locked, onClick }) {
+  const Icon = meal.icon;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`relative flex flex-col items-center gap-1.5 rounded-2xl border-2 px-2 py-3 text-xs font-bold transition active:scale-95 ${
+        active ? meal.tileOn : "border-slate-200 bg-white text-slate-400 hover:border-slate-300"
+      } ${locked ? "opacity-50" : ""}`}
+    >
+      <span
+        className={`flex h-10 w-10 items-center justify-center rounded-xl text-base transition ${
+          active ? meal.iconOn : "bg-slate-100 text-slate-400"
+        }`}
+      >
+        <Icon />
+      </span>
+      {meal.label}
+      <span className="absolute right-2 top-2 text-[10px]">
+        {locked ? <FaLock className="text-slate-400" /> : active ? <FaCheck className="text-current" /> : null}
+      </span>
+    </button>
+  );
+}
 
-  /* Customers: use the prop if given, otherwise fetch */
+function StatCard({ icon: Icon, label, value, tone, valueTone = "text-slate-900" }) {
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-3 text-center shadow-sm">
+      <span className={`mx-auto flex h-9 w-9 items-center justify-center rounded-xl text-sm ${tone}`}>
+        <Icon />
+      </span>
+      <p className="mt-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className={`text-lg font-extrabold tabular-nums sm:text-xl ${valueTone}`}>{value}</p>
+    </div>
+  );
+}
+
+function SectionTitle({ n, children }) {
+  return (
+    <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[10px] text-white">{n}</span>
+      {children}
+    </p>
+  );
+}
+
+export default function AutoOrderModal({ open, balance, onClose, onChanged }) {
+  const now = useNow();
+  const delivery = useCustomerDelivery(open);
+  const [plan, setPlan] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [start, setStart] = useState(defaultStart);
+  const [template, setTemplate] = useState(FULL);
+  const [draft, setDraft] = useState(() => buildDraft(defaultStart(), FULL));
+  const [editDate, setEditDate] = useState(null);
+  const [editVal, setEditVal] = useState(ZERO);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await API.get("/auto-orders/me");
+      setPlan(data.plan);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Couldn't load your auto order");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!open) return;
-    if (customersProp?.length) {
-      setCustomers(customersProp);
-      return;
-    }
-    API.get("/customers")
-      .then(({ data }) => setCustomers(Array.isArray(data) ? data : []))
-      .catch((err) => toast.error(errMsg(err)));
-  }, [open, customersProp]);
+    setStart(defaultStart());
+    setTemplate(FULL);
+    setEditDate(null);
+    load();
+  }, [open, load]);
 
-  /* Reset when closed */
   useEffect(() => {
-    if (!open) {
-      setCustomerId("");
-      setWeek(emptyWeek());
-      setActive(true);
-    }
-  }, [open]);
+    setDraft(buildDraft(start, template));
+  }, [start, template]);
 
-  /* Esc + scroll lock */
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => e.key === "Escape" && !saving && onClose();
+    if (!open) return undefined;
+    const onKey = (e) => e.key === "Escape" && !busy && onClose();
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKey);
@@ -101,253 +235,518 @@ export default function AutoOrderModal({ open, onClose, customers: customersProp
       document.body.style.overflow = prev;
       window.removeEventListener("keydown", onKey);
     };
-  }, [open, saving, onClose]);
+  }, [open, busy, onClose]);
 
-  /* Load the saved schedule when a customer is picked */
-  useEffect(() => {
-    if (!customerId) return;
-    let cancelled = false;
-    setLoadingSchedule(true);
-    API.get(`/auto-orders/${customerId}`)
-      .then(({ data }) => {
-        if (cancelled) return;
-        const next = emptyWeek();
-        DAYS.forEach((d) => {
-          next[d.key] = { ...emptyDay(), ...(data?.days?.[d.key] || {}) };
-        });
-        setWeek(next);
-        setActive(data?.active ?? true);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setWeek(emptyWeek());
-          setActive(true);
-        }
-      })
-      .finally(() => !cancelled && setLoadingSchedule(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [customerId]);
-
-  const selected = customers.find((c) => c.customerId === customerId);
-  const weekTotal = useMemo(() => DAYS.reduce((t, d) => t + dayTotal(week[d.key]), 0), [week]);
-  const activeDays = useMemo(() => DAYS.filter((d) => dayTotal(week[d.key]) > 0).length, [week]);
-
-  const applyCommon = (keys) =>
-    setWeek((w) => {
-      const next = { ...w };
-      keys.forEach((k) => {
-        next[k] = { ...common };
-      });
-      return next;
+  const summary = useMemo(() => {
+    let total = 0;
+    let regular = 0;
+    let leaves = 0;
+    draft.forEach((c) => {
+      if (countOf(c) === 0) {
+        leaves += 1;
+      } else {
+        total += priceOf(c);
+        regular += regularOf(c);
+      }
     });
-
-  const setDayMeal = (day, meal, v) =>
-    setWeek((w) => ({ ...w, [day]: { ...w[day], [meal]: v } }));
-
-  const save = async () => {
-    if (!selected) return toast.error("Select a customer first");
-    if (weekTotal === 0) return toast.error("Set at least one meal for the week");
-    setSaving(true);
-    try {
-      await API.put(`/auto-orders/${selected.customerId}`, {
-        customer: selected._id,
-        active,
-        days: week,
-      });
-      toast.success(`Auto order saved for ${selected.name}`);
-      onClose();
-    } catch (err) {
-      toast.error(errMsg(err));
-    } finally {
-      setSaving(false);
-    }
-  };
+    total += leaves * priceOf(template);
+    regular += leaves * regularOf(template);
+    return { total, saving: regular - total, leaves };
+  }, [draft, template]);
 
   if (!open) return null;
 
+  const running = Boolean(plan && plan.active);
+  const short = Number(balance) - summary.total <= 0;
+  const blocked = !delivery.loading && !delivery.deliverable;
+
+  const today = todayIST();
+  const doneDays = running ? plan.days.filter((d) => d.date < today).length : 0;
+  const totalDays = running ? plan.days.length : 0;
+  const progress = totalDays ? Math.round((doneDays / totalDays) * 100) : 0;
+
+  const toggleTemplate = (meal) => setTemplate((t) => ({ ...t, [meal]: t[meal] ? 0 : 1 }));
+
+  const applyPreset = (meals) =>
+    setTemplate({
+      breakfast: meals.includes("breakfast") ? 1 : 0,
+      lunch: meals.includes("lunch") ? 1 : 0,
+      dinner: meals.includes("dinner") ? 1 : 0,
+    });
+
+  const toggleDraft = (index, meal) => {
+    const date = addDays(start, index);
+    const next = draft[index][meal] ? 0 : 1;
+    if (next && !isMealOpen(date, meal, now)) return toast.error(closedMessage(date, meal));
+    setDraft((d) => d.map((c, i) => (i === index ? { ...c, [meal]: next } : c)));
+  };
+
+  const create = async () => {
+    if (blocked) return toast.error(pincodeMessage(delivery.pincode));
+    if (countOf(template) === 0) return toast.error("Choose the meals for your auto order");
+    setBusy(true);
+    try {
+      const { data } = await API.post("/auto-orders/me", {
+        startDate: start,
+        template: toBody(template),
+        days: draft.map(toBody),
+      });
+      setPlan(data.plan);
+      toast.success("Auto order started");
+      if (onChanged) await onChanged();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Couldn't start the auto order");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startEdit = (day) => {
+    setEditDate(day.date);
+    setEditVal(fromDay(day));
+  };
+
+  const setEditMeal = (meal, value) => {
+    if (!isMealOpen(editDate, meal, now)) return toast.error(closedMessage(editDate, meal));
+    setEditVal((v) => ({ ...v, [meal]: value }));
+  };
+
+  const markLeave = () => {
+    setEditVal((v) => {
+      const next = { ...v };
+      MEAL_KEYS.forEach((m) => {
+        if (isMealOpen(editDate, m, now)) next[m] = 0;
+      });
+      return next;
+    });
+  };
+
+  const saveEdit = async () => {
+    if (countOf(editVal) === 0 && !window.confirm("Mark this day as leave? It will move to the end of your plan.")) return;
+    setBusy(true);
+    try {
+      const { data } = await API.put("/auto-orders/me/day", { date: editDate, ...toBody(editVal) });
+      setPlan(data.plan);
+      setEditDate(null);
+      toast.success("Day updated");
+      if (onChanged) await onChanged();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Couldn't update this day");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stop = async () => {
+    if (!window.confirm("Stop your auto order? Meals that are still open to change will be cancelled and refunded.")) return;
+    setBusy(true);
+    try {
+      const { data } = await API.delete("/auto-orders/me");
+      setPlan(data.plan);
+      setEditDate(null);
+      toast.success("Auto order stopped");
+      if (onChanged) await onChanged();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Couldn't stop the auto order");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-      <div
-        aria-hidden="true"
-        onClick={() => !saving && onClose()}
-        className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
-      />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-5 sm:p-6">
+      <div aria-hidden="true" onClick={() => !busy && onClose()} className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" />
+
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Set auto order"
-        className="relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-3xl sm:rounded-3xl"
+        className="relative flex max-h-[calc(100dvh-2.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl sm:max-h-[90dvh]"
       >
-        {/* Header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-teal-700 via-teal-800 to-slate-900 px-5 pb-5 pt-5 text-white sm:px-6">
-          <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-white/10" />
-          <div className="relative flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold leading-tight">Set auto order</h2>
-              <p className="mt-0.5 text-base text-teal-100">
-                Set Monday–Sunday meals once. The order is entered automatically every day.
-              </p>
+        {/* ================= HEADER ================= */}
+        <div className="relative flex-none overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-5 py-4">
+          <span className="pointer-events-none absolute -right-12 -top-14 h-40 w-40 rounded-full bg-orange-500/20 blur-3xl" />
+          <span className="pointer-events-none absolute -bottom-16 left-8 h-32 w-32 rounded-full bg-blue-500/15 blur-3xl" />
+          <div className="relative z-10 flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-12 w-12 flex-none items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 text-lg text-white shadow-lg shadow-orange-500/30">
+                <FaSyncAlt className={busy ? "animate-spin" : ""} />
+              </span>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-extrabold leading-tight text-white sm:text-xl">
+                    Auto Order · {AUTO_DAYS} days
+                  </h2>
+                  {running && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/20 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-200 ring-1 ring-emerald-300/40">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />
+                      Active
+                    </span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs font-medium text-slate-200">
+                  Full day {formatINR(FULL_DAY_PRICE)} · Any two meals {formatINR(TWO_MEAL_PRICE)} per day
+                </p>
+              </div>
             </div>
             <button
               type="button"
               onClick={onClose}
-              disabled={saving}
+              disabled={busy}
               aria-label="Close"
-              className="rounded-xl p-1.5 text-xl leading-none text-teal-100 transition-colors hover:bg-white/15 hover:text-white disabled:opacity-50"
+              className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-white/15 text-sm text-white ring-1 ring-white/30 transition hover:bg-white/25 disabled:opacity-50"
             >
-              ✕
+              <FaTimes />
             </button>
           </div>
         </div>
 
-        {/* Body */}
-        <div className="space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
-          {/* How it works */}
-          <div className="rounded-2xl bg-teal-50 p-4 text-sm text-teal-900 ring-1 ring-teal-100">
-            <p className="font-semibold">How it works</p>
-            <ol className="mt-1 list-decimal space-y-0.5 pl-5">
-              <li>Pick a customer.</li>
-              <li>Set the common order (e.g. B1 L1 D1) and apply it to all days, or to Mon–Fri.</li>
-              <li>Change any single day if needed. A day with 0 meals is skipped.</li>
-              <li>Each day, the system adds that weekday's order to the orders table by itself.</li>
-            </ol>
-          </div>
-
-          {/* Customer */}
-          <div>
-            <label htmlFor="auto-customer" className="mb-1.5 block text-base font-medium text-slate-700">Customer</label>
-            <select
-              id="auto-customer"
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-4 focus:ring-teal-600/15"
-            >
-              <option value="">Select a customer…</option>
-              {customers.map((c) => (
-                <option key={c._id} value={c.customerId}>
-                  {c.name} ({c.customerId})
-                </option>
+        {/* ================= BODY ================= */}
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-slate-50 px-4 py-5 sm:px-6">
+          {loading ? (
+            <div className="space-y-3">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="h-16 animate-pulse rounded-2xl bg-slate-200/70" />
               ))}
-            </select>
-          </div>
-
-          {selected && (
+            </div>
+          ) : running ? (
             <>
-              {/* Common order */}
-              <section className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
-                <h3 className="text-base font-semibold text-slate-800">Common order</h3>
-                <p className="text-sm text-slate-500">Set once, then apply to the days you want.</p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                  {MEALS.map((m) => (
-                    <div key={m.key} className={`flex flex-col items-center rounded-2xl p-3 ${m.card}`}>
-                      <p className="text-base font-semibold text-slate-800">
-                        <span aria-hidden="true">{m.emoji}</span> {m.label}
-                      </p>
-                      <div className="mt-2">
-                        <Stepper label={m.label} value={common[m.key]} onChange={(v) => setCommon((c) => ({ ...c, [m.key]: v }))} />
+              {/* ---------- delivery location ---------- */}
+              <DeliveryLocationCard delivery={delivery} showAlert={false} />
+
+              {/* ---------- stats ---------- */}
+              <div className="grid grid-cols-3 gap-2.5">
+                <StatCard icon={FaCalendarCheck} label="Meal days" value={plan.mealDays} tone="bg-blue-50 text-blue-600" />
+                <StatCard icon={FaCalendarAlt} label="Starts" value={shortDate(plan.startDate)} tone="bg-orange-50 text-orange-600" />
+                <StatCard icon={FaWallet} label="Plan cost" value={formatINR(plan.totalCost)} tone="bg-emerald-50 text-emerald-600" valueTone="text-emerald-600" />
+              </div>
+
+              {/* ---------- progress ---------- */}
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span className="text-slate-700">Plan progress</span>
+                  <span className="text-slate-500">
+                    {doneDays} of {totalDays} days done
+                  </span>
+                </div>
+                <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-orange-500 to-amber-400 transition-all duration-500"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* ---------- day list ---------- */}
+              <ul className="space-y-2.5">
+                {plan.days.map((day) => {
+                  const editing = editDate === day.date;
+                  const value = editing ? editVal : fromDay(day);
+                  const allLocked = MEAL_KEYS.every((m) => !isMealOpen(day.date, m, now));
+                  const past = day.date < today;
+                  return (
+                    <li
+                      key={day.date}
+                      className={`rounded-2xl border bg-white p-3 shadow-sm transition ${
+                        editing
+                          ? "border-orange-300 ring-4 ring-orange-100"
+                          : day.cancelled
+                          ? "border-slate-200 bg-slate-50"
+                          : "border-slate-200/80 hover:shadow-md"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center gap-3">
+                        <DateTile date={day.date} muted={day.cancelled || past} />
+
+                        <div className="min-w-[110px] flex-1">
+                          <p className={`text-sm font-extrabold ${day.cancelled ? "text-slate-400 line-through" : "text-slate-900"}`}>
+                            {dayLabel(day.date)}
+                          </p>
+                          <div className="mt-1 text-[11px] font-bold">
+                            {day.cancelled ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-red-500">
+                                <FaUmbrellaBeach /> Leave
+                              </span>
+                            ) : day.extended ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2 py-0.5 text-orange-600">
+                                <FaBolt /> Carried forward · {formatINR(day.cost)}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">
+                                {formatINR(day.cost)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {!editing && <Chips value={value} />}
+
+                        {!editing && (
+                          <button
+                            type="button"
+                            disabled={allLocked || busy}
+                            onClick={() => startEdit(day)}
+                            className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition ${
+                              allLocked
+                                ? "cursor-not-allowed bg-slate-100 text-slate-400"
+                                : "bg-slate-900 text-white shadow-md shadow-slate-900/20 hover:bg-orange-500 hover:shadow-orange-500/30"
+                            }`}
+                          >
+                            {allLocked ? <FaLock /> : <FaPen />}
+                            Edit
+                          </button>
+                        )}
                       </div>
-                    </div>
+
+                      {/* ---------- inline editor ---------- */}
+                      {editing && (
+                        <div className="mt-3 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+                          <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                            <FaPen className="text-orange-500" /> Choose meals for this day
+                          </p>
+                          <div className="grid grid-cols-3 gap-2">
+                            {MEALS.map((m) => {
+                              const locked = !isMealOpen(day.date, m.key, now);
+                              return (
+                                <MealTile
+                                  key={m.key}
+                                  meal={m}
+                                  active={Boolean(value[m.key])}
+                                  locked={locked}
+                                  onClick={() => setEditMeal(m.key, value[m.key] ? 0 : 1)}
+                                />
+                              );
+                            })}
+                          </div>
+
+                          <div className="mt-3 flex items-center justify-between rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-200">
+                            <span className="text-xs font-semibold text-slate-500">Day total</span>
+                            {countOf(editVal) === 0 ? (
+                              <span className="inline-flex items-center gap-1.5 text-sm font-extrabold text-red-500">
+                                <FaUmbrellaBeach /> Leave
+                              </span>
+                            ) : (
+                              <span className="text-lg font-extrabold tabular-nums text-orange-600">
+                                {formatINR(priceOf(editVal))}
+                              </span>
+                            )}
+                          </div>
+
+                          {countOf(editVal) === 0 && (
+                            <p className="mt-2 flex items-start gap-1.5 text-[11px] font-semibold text-amber-700">
+                              <FaInfoCircle className="mt-0.5 flex-none" />
+                              This day becomes a leave and moves to the end of your plan.
+                            </p>
+                          )}
+
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={markLeave}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+                            >
+                              <FaUmbrellaBeach />
+                              Mark as leave
+                            </button>
+                            <div className="ml-auto flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditDate(null)}
+                                disabled={busy}
+                                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={saveEdit}
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-md shadow-emerald-500/25 transition hover:from-emerald-600 hover:to-emerald-700 disabled:opacity-50"
+                              >
+                                <FaCheck />
+                                {busy ? "Saving…" : "Save"}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+
+              <p className="flex items-start gap-2 rounded-2xl bg-blue-50 p-3 text-xs leading-relaxed text-blue-800 ring-1 ring-blue-100">
+                <FaInfoCircle className="mt-0.5 flex-none text-blue-500" />
+                Set a day to 0 meals to take a leave. That day moves to the end, so you always get {AUTO_DAYS} meal days.
+                Breakfast and lunch can be changed until 7 PM, dinner until 9 PM the day before.
+              </p>
+            </>
+          ) : (
+            <>
+              {/* ---------- delivery location ---------- */}
+              <DeliveryLocationCard delivery={delivery} />
+
+              {/* ---------- step 1 ---------- */}
+              <div>
+                <SectionTitle n="1">Start date</SectionTitle>
+                <div className="group relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg bg-orange-50 text-sm text-orange-500 transition group-focus-within:bg-orange-500 group-focus-within:text-white">
+                    <FaCalendarAlt />
+                  </span>
+                  <input
+                    id="auto-start"
+                    type="date"
+                    value={start}
+                    min={defaultStart()}
+                    onChange={(e) => e.target.value && setStart(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-14 pr-3 text-sm font-bold text-slate-800 shadow-sm outline-none transition focus:border-orange-500 focus:ring-4 focus:ring-orange-100"
+                  />
+                </div>
+              </div>
+
+              {/* ---------- step 2 ---------- */}
+              <div>
+                <SectionTitle n="2">Meals every day</SectionTitle>
+                <div className="grid grid-cols-3 gap-2.5">
+                  {MEALS.map((m) => (
+                    <MealTile
+                      key={m.key}
+                      meal={m}
+                      active={Boolean(template[m.key])}
+                      locked={false}
+                      onClick={() => toggleTemplate(m.key)}
+                    />
                   ))}
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => applyCommon(DAYS.map((d) => d.key))}
-                    className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-teal-800"
-                  >
-                    Apply to all 7 days
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => applyCommon(DAYS.slice(0, 5).map((d) => d.key))}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Apply to Mon–Fri
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setWeek(emptyWeek())}
-                    className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-50"
-                  >
-                    Clear all
-                  </button>
-                </div>
-              </section>
 
-              {/* Weekly schedule */}
-              <section>
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-base font-semibold text-slate-800">Weekly schedule</h3>
-                  {loadingSchedule && <span className="text-sm text-slate-500">Loading saved schedule…</span>}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    <FaBolt className="text-orange-500" /> Presets
+                  </span>
+                  {PRESETS.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => applyPreset(p.meals)}
+                      className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 shadow-sm transition hover:border-orange-400 hover:bg-orange-50 hover:text-orange-700 active:scale-95"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
                 </div>
-                <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200">
-                  {DAYS.map((d) => {
-                    const day = week[d.key];
-                    const total = dayTotal(day);
+              </div>
+
+              {/* ---------- step 3 ---------- */}
+              <div>
+                <SectionTitle n="3">Customise your days</SectionTitle>
+                <ul className="space-y-2">
+                  {draft.map((c, i) => {
+                    const date = addDays(start, i);
+                    const n = countOf(c);
                     return (
-                      <li key={d.key} className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${total === 0 ? "bg-slate-50/60" : "bg-white"}`}>
-                        <div className="w-28">
-                          <p className="text-base font-semibold text-slate-900">{d.label}</p>
-                          <p className={`text-xs ${total === 0 ? "text-slate-400" : "text-teal-700"}`}>
-                            {total === 0 ? "No order" : `${total} meal${total > 1 ? "s" : ""}`}
+                      <li
+                        key={date}
+                        className={`flex flex-wrap items-center gap-3 rounded-2xl border bg-white p-2.5 shadow-sm ${
+                          n === 0 ? "border-slate-200 bg-slate-50" : "border-slate-200/80"
+                        }`}
+                      >
+                        <DateTile date={date} muted={n === 0} />
+                        <div className="min-w-[100px] flex-1">
+                          <p className={`text-sm font-extrabold ${n === 0 ? "text-slate-400 line-through" : "text-slate-900"}`}>
+                            {dayLabel(date)}
+                          </p>
+                          <p className="mt-0.5 text-[11px] font-bold">
+                            {n === 0 ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-red-500">
+                                <FaUmbrellaBeach /> Leave
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">{formatINR(priceOf(c))}</span>
+                            )}
                           </p>
                         </div>
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                          {MEALS.map((m) => (
-                            <div key={m.key} className="flex items-center gap-1.5">
-                              <span className={`rounded-md px-1.5 py-0.5 text-xs font-semibold ${day[m.key] > 0 ? m.on : "bg-slate-100 text-slate-400"}`}>{m.short}</span>
-                              <Stepper size="sm" label={`${d.label} ${m.label}`} value={day[m.key]} onChange={(v) => setDayMeal(d.key, m.key, v)} />
-                            </div>
-                          ))}
+                        <div className="flex items-center gap-1.5">
+                          {MEALS.map((m) => {
+                            const locked = !isMealOpen(date, m.key, now);
+                            const Icon = m.icon;
+                            return (
+                              <button
+                                key={m.key}
+                                type="button"
+                                onClick={() => toggleDraft(i, m.key)}
+                                aria-label={`${m.label} on ${dayLabel(date)}`}
+                                aria-pressed={Boolean(c[m.key])}
+                                className={`relative inline-flex h-10 w-10 items-center justify-center rounded-xl text-sm transition active:scale-95 ${
+                                  c[m.key] ? `${m.on} ring-1` : "bg-slate-100 text-slate-400 hover:bg-slate-200"
+                                } ${locked ? "opacity-40" : ""}`}
+                              >
+                                <Icon />
+                                {locked && <FaLock className="absolute -right-1 -top-1 rounded-full bg-white p-0.5 text-[10px] text-slate-500 shadow" />}
+                              </button>
+                            );
+                          })}
                         </div>
                       </li>
                     );
                   })}
                 </ul>
-              </section>
-
-              {/* Summary + active toggle */}
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
-                <div>
-                  <p className="text-sm text-slate-500">Per week</p>
-                  <p className="text-2xl font-bold tabular-nums text-slate-900">
-                    {weekTotal} <span className="text-base font-medium text-slate-500">meals · {activeDays} days</span>
-                  </p>
-                </div>
-                <label className="inline-flex cursor-pointer items-center gap-2 text-base font-medium text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={active}
-                    onChange={(e) => setActive(e.target.checked)}
-                    className="h-5 w-5 rounded border-slate-300 text-teal-700 focus:ring-teal-600"
-                  />
-                  Auto order is {active ? "ON" : "OFF"}
-                </label>
               </div>
+
+              {/* ---------- summary ---------- */}
+              <div className="grid grid-cols-3 gap-2.5">
+                <StatCard icon={FaUmbrellaBeach} label="Leaves" value={summary.leaves} tone="bg-red-50 text-red-500" />
+                <StatCard icon={FaPiggyBank} label="You save" value={formatINR(summary.saving)} tone="bg-emerald-50 text-emerald-600" valueTone="text-emerald-600" />
+                <StatCard icon={FaUtensils} label="Total" value={formatINR(summary.total)} tone="bg-orange-50 text-orange-600" valueTone="text-orange-600" />
+              </div>
+
+              {short && (
+                <p className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
+                  <FaExclamationTriangle className="mt-0.5 flex-none" />
+                  Your balance must stay above ₹0 after the auto order. Please add a payment first.
+                </p>
+              )}
+
+              <p className="flex items-start gap-2 rounded-2xl bg-blue-50 p-3 text-xs leading-relaxed text-blue-800 ring-1 ring-blue-100">
+                <FaInfoCircle className="mt-0.5 flex-none text-blue-500" />
+                Leave days are added after the last date automatically, so you always get {AUTO_DAYS} meal days.
+              </p>
             </>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 sm:flex-row sm:justify-end sm:px-6">
+        {/* ================= FOOTER ================= */}
+        <div className="flex flex-none flex-col-reverse gap-2 border-t border-slate-100 bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:justify-end sm:px-6">
+          {running && (
+            <button
+              type="button"
+              onClick={stop}
+              disabled={busy}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-bold text-red-600 transition hover:bg-red-50 disabled:opacity-50 sm:mr-auto"
+            >
+              <FaStopCircle />
+              Stop auto order
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
-            disabled={saving}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-base font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+            disabled={busy}
+            className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
           >
-            Cancel
+            Close
           </button>
-          <button
-            type="button"
-            onClick={save}
-            disabled={saving || !selected || loadingSchedule}
-            className="rounded-lg bg-teal-700 px-4 py-2 text-base font-medium text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Save auto order"}
-          </button>
+          {!running && !loading && (
+            <button
+              type="button"
+              onClick={create}
+              disabled={busy || short || blocked || countOf(template) === 0}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-orange-500/30 transition hover:from-orange-600 hover:to-amber-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
+            >
+              <FaBolt />
+              {busy ? "Starting…" : `Start auto order · ${formatINR(summary.total)}`}
+            </button>
+          )}
         </div>
       </div>
     </div>,
