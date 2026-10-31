@@ -3,10 +3,9 @@ import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
 import API from "../services/api";
 import { buildReportHTML, downloadReportPDF, printReport, sumMeals, todayInput } from "../assets/utils/report";
+import { hasLocation, mapsLink } from "../assets/utils/delivery";
+import { LocationPanel } from "../components/DeliveryLocation";
 
-/* =====================================================================
-   Helpers
-===================================================================== */
 const formatINR = (n) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
 
 const formatDate = (value) => {
@@ -44,9 +43,6 @@ const td = "px-4 py-3 text-base text-slate-700";
 const inputCls =
   "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900 transition focus:border-teal-600 focus:outline-none focus:ring-4 focus:ring-teal-600/15";
 
-/* =====================================================================
-   Icons
-===================================================================== */
 const ICONS = {
   search: (<><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></>),
   x: <path d="M18 6 6 18M6 6l12 12" />,
@@ -65,6 +61,8 @@ const ICONS = {
   printer: (<><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></>),
   download: <path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16" />,
   eye: (<><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></>),
+  arrow: <path d="M5 12h14M13 5l7 7-7 7" />,
+  pin: (<><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z" /><circle cx="12" cy="10" r="2.5" /></>),
 };
 
 function Icon({ name, className = "h-4 w-4" }) {
@@ -84,9 +82,6 @@ function Spinner({ className = "h-4 w-4" }) {
   );
 }
 
-/* =====================================================================
-   Small UI pieces
-===================================================================== */
 const VARIANTS = {
   primary: "bg-teal-700 text-white hover:bg-teal-800 focus-visible:ring-teal-600",
   secondary: "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 focus-visible:ring-slate-400",
@@ -119,7 +114,7 @@ function IconButton({ icon, label, tone = "default", ...rest }) {
       type="button"
       aria-label={label}
       title={label}
-      className={`rounded-lg p-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 ${tones[tone]}`}
+      className={`rounded-lg p-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent ${tones[tone]}`}
       {...rest}
     >
       <Icon name={icon} />
@@ -248,9 +243,6 @@ function StatCard({ label, value, hint, onClick, highlight = false, tone = "bord
   );
 }
 
-/* =====================================================================
-   Modal shell (portal, focus trap, Esc, animation, scroll lock)
-===================================================================== */
 const FOCUSABLE =
   'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 const WIDTHS = { sm: "sm:max-w-sm", md: "sm:max-w-lg", lg: "sm:max-w-2xl", xl: "sm:max-w-5xl" };
@@ -362,9 +354,6 @@ function Modal({ open, onClose, title, description, header, children, footer, si
   );
 }
 
-/* =====================================================================
-   Confirm dialog (delete)
-===================================================================== */
 function ConfirmDialog({ open, title, message, confirmLabel = "Confirm", loading = false, onConfirm, onClose }) {
   return (
     <Modal
@@ -390,9 +379,49 @@ function ConfirmDialog({ open, title, message, confirmLabel = "Confirm", loading
   );
 }
 
-/* =====================================================================
-   Payment review modal
-===================================================================== */
+function DatesModal({ open, dates, counts, selected, onSelect, onClose }) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Dates with orders"
+      description="Select a date to see its orders."
+      footer={<Button variant="secondary" onClick={onClose}>Close</Button>}
+    >
+      <ul className="divide-y divide-slate-100">
+        {dates.map((d) => (
+          <li key={d}>
+            <button
+              type="button"
+              onClick={() => onSelect(d)}
+              aria-current={selected === d}
+              className={`group flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left transition-colors hover:bg-teal-50/60 focus:outline-none focus-visible:bg-teal-50 ${
+                selected === d ? "bg-teal-50" : ""
+              }`}
+            >
+              <span className="flex items-center gap-3">
+                <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${selected === d ? "bg-teal-700 text-white" : "bg-slate-100 text-slate-500"}`}>
+                  <Icon name="calendar" className="h-4 w-4" />
+                </span>
+                <span>
+                  <span className="block text-base font-medium text-slate-900">{formatDate(d)}</span>
+                  <span className="block text-sm text-slate-500">{longDate(d)}</span>
+                </span>
+              </span>
+              <span className="flex items-center gap-3">
+                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-sm font-medium tabular-nums text-slate-600">
+                  {counts[d] || 0} {(counts[d] || 0) === 1 ? "order" : "orders"}
+                </span>
+                <Icon name="arrow" className="h-4 w-4 text-slate-300 transition-transform group-hover:translate-x-1 group-hover:text-teal-700" />
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Modal>
+  );
+}
+
 function PaymentReviewModal({ open, payment, onClose, onDecision }) {
   const [busy, setBusy] = useState(null);
   const [imgFailed, setImgFailed] = useState(false);
@@ -491,9 +520,6 @@ function PaymentReviewModal({ open, payment, onClose, onDecision }) {
   );
 }
 
-/* =====================================================================
-   Meal card + Edit order modal
-===================================================================== */
 const toDateInput = (v) => (v ? String(v).slice(0, 10) : "");
 const clampCount = (n) => Math.max(0, Math.min(999, Number.isFinite(n) ? n : 0));
 const formFromOrder = (o) => ({
@@ -687,9 +713,6 @@ function EditOrderModal({ open, order, onClose, onSave }) {
   );
 }
 
-/* =====================================================================
-   Customer details modal (full profile, balance, orders, payments)
-===================================================================== */
 function InfoTile({ label, value, tone = "bg-slate-50 text-slate-900", labelTone = "text-slate-500" }) {
   return (
     <div className={`rounded-xl p-3.5 ${tone}`}>
@@ -699,7 +722,7 @@ function InfoTile({ label, value, tone = "bg-slate-50 text-slate-900", labelTone
   );
 }
 
-function CustomerDetailsModal({ open, customer, orders, payments, onClose }) {
+function CustomerDetailsModal({ open, customer, orders, payments, onClose, onSaveLocation }) {
   const [section, setSection] = useState("orders");
 
   useEffect(() => {
@@ -764,14 +787,14 @@ function CustomerDetailsModal({ open, customer, orders, payments, onClose }) {
     >
       {customer && (
         <div className="space-y-6 px-5 py-5 sm:px-6">
-          {/* Contact */}
           <section aria-label="Contact details">
             <h3 className="mb-2 text-base font-semibold text-slate-800">Contact</h3>
-            <dl className="grid gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-3">
+            <dl className="grid gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 ["Email", customer.email || "—"],
                 ["Phone", customer.phone || "—"],
                 ["Address", customer.address || "—"],
+                ["Pincode", customer.pincode || "—"],
               ].map(([label, value]) => (
                 <div key={label} className="min-w-0">
                   <dt className="text-sm text-slate-500">{label}</dt>
@@ -781,7 +804,15 @@ function CustomerDetailsModal({ open, customer, orders, payments, onClose }) {
             </dl>
           </section>
 
-          {/* Balance */}
+          <section aria-label="Delivery location">
+            <h3 className="mb-2 text-base font-semibold text-slate-800">Delivery location</h3>
+            <LocationPanel
+              location={hasLocation(customer.location) ? customer.location : null}
+              allowDetect={false}
+              onSave={(payload) => onSaveLocation(customer._id, payload)}
+            />
+          </section>
+
           <section aria-label="Balance details">
             <h3 className="mb-2 text-base font-semibold text-slate-800">Balance details</h3>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
@@ -804,7 +835,6 @@ function CustomerDetailsModal({ open, customer, orders, payments, onClose }) {
             </div>
           </section>
 
-          {/* Orders / payments */}
           <section aria-label="History">
             <div role="tablist" aria-label="Customer history" className="mb-3 inline-flex rounded-xl bg-slate-100 p-1">
               {sections.map((s) => (
@@ -900,9 +930,6 @@ function CustomerDetailsModal({ open, customer, orders, payments, onClose }) {
   );
 }
 
-/* =====================================================================
-   Add modals (customer / order / payment)
-===================================================================== */
 function Field({ label, htmlFor, children }) {
   return (
     <div>
@@ -925,7 +952,7 @@ function CustomerSelect({ id, customers, value, onChange }) {
   );
 }
 
-const EMPTY_CUSTOMER = { name: "", phone: "", email: "", address: "", password: "" };
+const EMPTY_CUSTOMER = { name: "", phone: "", email: "", address: "", pincode: "", password: "" };
 
 function AddCustomerModal({ open, onClose, onSave }) {
   const [form, setForm] = useState(EMPTY_CUSTOMER);
@@ -939,8 +966,9 @@ function AddCustomerModal({ open, onClose, onSave }) {
 
   const submit = async (e) => {
     e.preventDefault();
+    if (!/^\d{6}$/.test(form.pincode.trim())) return toast.error("Enter a valid 6-digit pincode");
     setSaving(true);
-    const ok = await onSave(form);
+    const ok = await onSave({ ...form, pincode: form.pincode.trim() });
     setSaving(false);
     if (ok) onClose();
   };
@@ -974,9 +1002,25 @@ function AddCustomerModal({ open, onClose, onSave }) {
             <input id="ac-email" type="email" required value={form.email} onChange={set("email")} className={inputCls} placeholder="john@example.com" />
           </Field>
         </div>
-        <Field label="Address" htmlFor="ac-address">
-          <input id="ac-address" required value={form.address} onChange={set("address")} className={inputCls} placeholder="123 Main St, City" />
-        </Field>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="sm:col-span-2">
+            <Field label="Address" htmlFor="ac-address">
+              <input id="ac-address" required value={form.address} onChange={set("address")} className={inputCls} placeholder="123 Main St, City" />
+            </Field>
+          </div>
+          <Field label="Pincode" htmlFor="ac-pincode">
+            <input
+              id="ac-pincode"
+              required
+              inputMode="numeric"
+              maxLength={6}
+              value={form.pincode}
+              onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
+              className={inputCls}
+              placeholder="683565"
+            />
+          </Field>
+        </div>
         <Field label="Password" htmlFor="ac-pass">
           <input id="ac-pass" type="password" required minLength={6} value={form.password} onChange={set("password")} className={inputCls} placeholder="At least 6 characters" />
         </Field>
@@ -1112,9 +1156,6 @@ function AddPaymentModal({ open, onClose, onSave, customers }) {
   );
 }
 
-/* =====================================================================
-   Page
-===================================================================== */
 const ENDPOINTS = { payments: "/payments", orders: "/orders", customers: "/customers" };
 
 const TABS = [
@@ -1138,7 +1179,6 @@ const PAYMENT_FILTERS = [
 ];
 
 export default function AdminDashboard() {
-  /* ---------- Data ---------- */
   const [payments, setPayments] = useState([]);
   const [orders, setOrders] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -1177,7 +1217,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // Customers are reloaded too, since a confirmed payment can change a balance.
   const setPaymentStatus = (id, status) =>
     mutate(() => API.put(`/payments/${id}`, { status }), `Payment ${status}`, ["payments", "customers"]);
   const updateOrder = (id, form) =>
@@ -1189,6 +1228,8 @@ export default function AdminDashboard() {
     mutate(() => API.post("/auth/register", { ...form, role: "customer" }), "Customer added", ["customers"]);
   const addOrder = (form) =>
     mutate(() => API.post("/orders", form), "Order added", ["orders", "customers"]);
+  const saveCustomerLocation = (id, body) =>
+    mutate(() => API.put(`/customers/${id}/location`, body), "Location updated", ["customers", "orders"]);
   const addPayment = ({ customer, amount, file }) => {
     const fd = new FormData();
     fd.append("customer", customer);
@@ -1201,19 +1242,16 @@ export default function AdminDashboard() {
     );
   };
 
-  /* ---------- UI state ---------- */
   const [tab, setTab] = useState("payments");
   const [query, setQuery] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [reportDate, setReportDate] = useState(todayInput());
 
-  // One modal at a time. `item` is kept after close so the exit animation keeps its content.
   const [ui, setUi] = useState({ kind: null, item: null, open: false });
   const [deleting, setDeleting] = useState(false);
   const openModal = (kind, item) => setUi({ kind, item, open: true });
   const closeModal = () => setUi((s) => ({ ...s, open: false }));
 
-  /* ---------- Derived ---------- */
   const customerMap = useMemo(() => {
     const m = {};
     customers.forEach((c) => {
@@ -1227,7 +1265,15 @@ export default function AdminDashboard() {
     [customerMap]
   );
 
-  // Always show the freshest copy of the customer being viewed (balances change after reloads).
+  const locationOf = useCallback(
+    (o) => {
+      const fresh = customerMap[o.customerId]?.location;
+      if (hasLocation(fresh)) return fresh;
+      return hasLocation(o.customer?.location) ? o.customer.location : null;
+    },
+    [customerMap]
+  );
+
   const viewCustomer =
     ui.kind === "customer" && ui.item
       ? customers.find((c) => c._id === ui.item._id) || ui.item
@@ -1274,6 +1320,14 @@ export default function AdminDashboard() {
     () => [...new Set(orders.map((o) => toDateInput(o.date)).filter(Boolean))].sort().reverse(),
     [orders]
   );
+  const dateCounts = useMemo(() => {
+    const m = {};
+    orders.forEach((o) => {
+      const d = toDateInput(o.date);
+      if (d) m[d] = (m[d] || 0) + 1;
+    });
+    return m;
+  }, [orders]);
   const dayOrders = useMemo(
     () =>
       orders.filter(
@@ -1313,7 +1367,6 @@ export default function AdminDashboard() {
     if (ok) closeModal();
   };
 
-  /* ---------- Reports (print / PDF) ---------- */
   const orderReport = (list, title, subtitle) => {
     const s = sumMeals(list);
     return buildReportHTML({
@@ -1357,7 +1410,6 @@ export default function AdminDashboard() {
     />
   );
 
-  /* ---------- Tables ---------- */
   const paymentsTable = loading.payments ? (
     <TableSkeleton cols={5} />
   ) : payments.length === 0 ? (
@@ -1444,26 +1496,35 @@ export default function AdminDashboard() {
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100">
-        {filteredOrders.map((o) => (
-          <tr key={o._id} className="hover:bg-slate-50/70">
-            <td className={`${td} font-medium text-slate-900`}>{o.serviceId}</td>
-            <td className={`${td} whitespace-nowrap`}>{formatDate(o.date)}</td>
-            <td className={td}>
-              <p className="font-medium text-slate-900">{nameOf(o)}</p>
-              <p className="text-sm text-slate-500">{o.customerId}</p>
-            </td>
-            <td className={td}><MealChips order={o} /></td>
-            <td className={`${td} font-medium tabular-nums text-slate-900`}>{formatINR(o.totalCost)}</td>
-            <td className={`${td} text-right`}>
-              <div className="inline-flex gap-1">
-                <IconButton icon="printer" label="Print order" onClick={() => runPrint(singleOrderReport(o), `Order ${o.serviceId}`)} />
-                <IconButton icon="download" label="Download PDF" onClick={() => runPDF(singleOrderReport(o), `order-${o.serviceId}.pdf`)} />
-                <IconButton icon="edit" label="Edit order" onClick={() => openModal("edit", o)} />
-                <IconButton icon="trash" label="Delete order" tone="danger" onClick={() => openModal("delete", o)} />
-              </div>
-            </td>
-          </tr>
-        ))}
+        {filteredOrders.map((o) => {
+          const loc = locationOf(o);
+          return (
+            <tr key={o._id} className="hover:bg-slate-50/70">
+              <td className={`${td} font-medium text-slate-900`}>{o.serviceId}</td>
+              <td className={`${td} whitespace-nowrap`}>{formatDate(o.date)}</td>
+              <td className={td}>
+                <p className="font-medium text-slate-900">{nameOf(o)}</p>
+                <p className="text-sm text-slate-500">{o.customerId}</p>
+              </td>
+              <td className={td}><MealChips order={o} /></td>
+              <td className={`${td} font-medium tabular-nums text-slate-900`}>{formatINR(o.totalCost)}</td>
+              <td className={`${td} text-right`}>
+                <div className="inline-flex gap-1">
+                  <IconButton
+                    icon="pin"
+                    label={loc ? "View delivery location" : "No location set"}
+                    disabled={!loc}
+                    onClick={() => loc && window.open(mapsLink(loc.lat, loc.lng), "_blank", "noopener")}
+                  />
+                  <IconButton icon="printer" label="Print order" onClick={() => runPrint(singleOrderReport(o), `Order ${o.serviceId}`)} />
+                  <IconButton icon="download" label="Download PDF" onClick={() => runPDF(singleOrderReport(o), `order-${o.serviceId}.pdf`)} />
+                  <IconButton icon="edit" label="Edit order" onClick={() => openModal("edit", o)} />
+                  <IconButton icon="trash" label="Delete order" tone="danger" onClick={() => openModal("delete", o)} />
+                </div>
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </TableShell>
   );
@@ -1545,22 +1606,24 @@ export default function AdminDashboard() {
       </div>
 
       {orderDates.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-slate-500">Dates with orders:</span>
-          {orderDates.slice(0, 10).map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setReportDate(d)}
-              aria-pressed={reportDate === d}
-              className={`rounded-full px-3 py-1 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 ${
-                reportDate === d ? "bg-teal-700 text-white" : "border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {formatDate(d)}
-            </button>
-          ))}
-        </div>
+        <button
+          type="button"
+          onClick={() => openModal("dates", null)}
+          className="group flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:border-teal-600 hover:bg-teal-50/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+        >
+          <span className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
+              <Icon name="calendar" />
+            </span>
+            <span>
+              <span className="block text-base font-medium text-slate-900">Dates with orders</span>
+              <span className="block text-sm text-slate-500">
+                {orderDates.length} {orderDates.length === 1 ? "date" : "dates"} · tap to choose one
+              </span>
+            </span>
+          </span>
+          <Icon name="arrow" className="h-5 w-5 text-slate-400 transition-transform group-hover:translate-x-1 group-hover:text-teal-700" />
+        </button>
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -1611,7 +1674,6 @@ export default function AdminDashboard() {
     </div>
   );
 
-  /* ---------- Render ---------- */
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -1702,7 +1764,6 @@ export default function AdminDashboard() {
         </div>
       </section>
 
-      {/* ---------- Modals ---------- */}
       <PaymentReviewModal
         open={ui.open && ui.kind === "payment"}
         payment={ui.kind === "payment" ? ui.item : null}
@@ -1715,12 +1776,24 @@ export default function AdminDashboard() {
         orders={orders}
         payments={payments}
         onClose={closeModal}
+        onSaveLocation={saveCustomerLocation}
       />
       <EditOrderModal
         open={ui.open && ui.kind === "edit"}
         order={ui.kind === "edit" ? ui.item : null}
         onClose={closeModal}
         onSave={updateOrder}
+      />
+      <DatesModal
+        open={ui.open && ui.kind === "dates"}
+        dates={orderDates}
+        counts={dateCounts}
+        selected={reportDate}
+        onSelect={(d) => {
+          setReportDate(d);
+          closeModal();
+        }}
+        onClose={closeModal}
       />
       <AddCustomerModal open={ui.open && ui.kind === "addCustomer"} onClose={closeModal} onSave={addCustomer} />
       <AddOrderModal open={ui.open && ui.kind === "addOrder"} onClose={closeModal} onSave={addOrder} customers={customers} />
